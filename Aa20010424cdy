@@ -1,1 +1,93 @@
+import pandas as pd
+from statsmodels.tsa.arima.model import ARIMA
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error
+import statsmodels.api as sm
 
+data = pd.read_excel("E:/UCL/Term 1/0091 EDA/electricity_price.xlsx")#read data
+
+data
+
+data['Date'] = pd.to_datetime(data['Date'])
+data.set_index('Date', inplace=True)
+
+split_index = int(len(data) * 0.7)
+train = data.iloc[:split_index]
+test = data.iloc[split_index:]
+plt.plot(train.index,train['Daily average'])
+
+differenced_data = data['Daily average'].diff().dropna()
+
+# plot ACF and PACF
+fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+sm.graphics.tsa.plot_acf(differenced_data, lags=40, ax=ax[0])
+sm.graphics.tsa.plot_pacf(differenced_data, lags=40, ax=ax[1])
+plt.show()
+
+best_aic = np.inf
+best_bic = np.inf
+best_order = None
+best_rmse = np.inf
+d = 1  
+initial_train_size = int(len(data) * 0.7)  
+expanding_window = True  
+
+for p in range(5):
+    for q in range(5):
+        try:
+            train_size = initial_train_size
+            rmses = []
+
+            while train_size < len(data):
+                train = data.iloc[:train_size]
+                test = data.iloc[train_size:train_size+1]
+                model = ARIMA(train['Daily average'], order=(p, d, q))
+                model_fit = model.fit()
+                predictions = model_fit.forecast(steps=1)
+                rmse = np.sqrt(mean_squared_error(test['Daily average'], predictions))
+                rmses.append(rmse)
+
+                train_size += 1 if not expanding_window else len(rmses)
+
+            avg_rmse = np.mean(rmses)
+            current_bic = model_fit.bic
+
+            if avg_rmse < best_rmse and current_bic < best_bic:
+                best_rmse = avg_rmse
+                best_bic = current_bic
+                best_order = (p, d, q)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+
+
+
+
+best_order = (4, 1, 2)
+n_input_steps = 15  # use past 15 days data
+
+# split train and test data set
+split_index = int(len(data) * 0.7)  # with 7:3 ratio
+
+# predict 30% test set
+predictions = []
+for end in range(split_index, len(data)):
+    train = data.iloc[end - n_input_steps:end]['Daily average']
+    model = ARIMA(train, order=best_order)
+    model_fit = model.fit()
+    pred = model_fit.forecast(steps=1)[0]
+    predictions.append(pred)
+
+# add predictions to data frame
+test_predictions = pd.Series(predictions, index=data.index[split_index:])
+data['Predictions'] = test_predictions
+
+plt.figure(figsize=(12, 6))
+plt.plot(data['Daily average'][split_index:], label='Actual Data', color='blue')
+plt.plot(data['Predictions'][split_index:], label='Predicted Data', color='red', linestyle='--')
+plt.title('Test Data: Electricity Price Prediction using ARIMA')
+plt.xlabel('Date')
+plt.ylabel('Price')
+plt.legend()
+plt.show()
